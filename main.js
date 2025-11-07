@@ -3,7 +3,6 @@ const http = require("http");
 const fs = require("fs/promises");
 const path = require("path");
 
-// ---------- 1. Налаштування командного рядка ----------
 const program = new Command();
 
 program
@@ -14,22 +13,37 @@ program
 program.parse(process.argv);
 const options = program.opts();
 
-// ---------- 2. Створення директорії кешу ----------
 const cacheDir = path.resolve(options.cache);
+
 fs.mkdir(cacheDir, { recursive: true })
   .then(() => {
-    console.log("Host:", options.host);
-    console.log("Port:", options.port);
-    console.log("Cache directory:", cacheDir);
+    const server = http.createServer(async (req, res) => {
+      const method = req.method;
+      const code = req.url.slice(1); // Наприклад, "/200" → "200"
+      const filePath = path.join(cacheDir, `${code}.jpg`);
 
-    // ---------- 3. Запуск простого веб-сервера ----------
-    const server = http.createServer((req, res) => {
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("Proxy server is running. Use further steps to implement caching.\n");
+      if (method === "GET") {
+        try {
+          const image = await fs.readFile(filePath);
+          res.writeHead(200, { "Content-Type": "image/jpeg" });
+          res.end(image);
+        } catch (err) {
+          if (err.code === "ENOENT") {
+            res.writeHead(404, { "Content-Type": "text/plain" });
+            res.end("Not Found\n");
+          } else {
+            res.writeHead(500, { "Content-Type": "text/plain" });
+            res.end("Internal Server Error\n");
+          }
+        }
+      } else {
+        res.writeHead(405, { "Content-Type": "text/plain" });
+        res.end("Method Not Allowed\n");
+      }
     });
 
     server.listen(options.port, options.host, () => {
-      console.log(`✅ Server is running at http://${options.host}:${options.port}/`);
+      console.log(`✅ Server running at http://${options.host}:${options.port}/`);
     });
   })
   .catch((err) => {
