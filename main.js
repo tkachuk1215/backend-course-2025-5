@@ -2,6 +2,7 @@ const { Command } = require("commander");
 const http = require("http");
 const fs = require("fs/promises");
 const path = require("path");
+const superagent = require("superagent");
 
 const program = new Command();
 
@@ -20,49 +21,71 @@ fs.mkdir(cacheDir, { recursive: true })
     console.log(`✅ Cache directory: ${cacheDir}`);
 
     const server = http.createServer(async (req, res) => {
-      const code = req.url.slice(1); // наприклад /200 -> "200"
+      const code = req.url.slice(1);
       const filePath = path.join(cacheDir, `${code}.jpg`);
 
-      try {
-        // --- GET ---
-        if (req.method === "GET") {
-          const data = await fs.readFile(filePath);
+      if (req.method === "GET") {
+        // Функція для відправки картинки
+        const sendImage = (buffer) => {
           res.writeHead(200, { "Content-Type": "image/jpeg" });
-          res.end(data);
-        }
+          res.end(buffer);
+        };
 
-        // --- PUT ---
-        else if (req.method === "PUT") {
-          const chunks = [];
-          req.on("data", (chunk) => chunks.push(chunk));
-          req.on("end", async () => {
-            const body = Buffer.concat(chunks);
-            await fs.writeFile(filePath, body);
-            res.writeHead(201, { "Content-Type": "text/plain" });
-            res.end("✅ Image saved successfully\n");
-          });
+        // Перевіряємо кеш
+        try {
+          const data = await fs.readFile(filePath);
+          return sendImage(data);
+        } catch (err) {
+          if (err.code !== "ENOENT") {
+            res.writeHead(500, { "Content-Type": "text/plain" });
+            return res.end("Internal Server Error\n");
+          }
+          // Якщо немає файлу в кеші — запитуємо http.cat
+          try {
+            const response = await superagent.get(`https://http.cat/${code}`).responseType("buffer");
+            const buffer = Buffer.from(response.body);
+            await fs.writeFile(filePath, buffer); // кешуємо
+            return sendImage(buffer);
+          } catch (err) {
+            res.writeHead(404, { "Content-Type": "text/plain" });
+            return res.end("Not Found\n");
+          }
         }
+      }
 
-        // --- DELETE ---
-        else if (req.method === "DELETE") {
+      // --- PUT ---
+      else if (req.method === "PUT") {
+        const chunks = [];
+        req.on("data", (chunk) => chunks.push(chunk));
+        req.on("end", async () => {
+          const body = Buffer.concat(chunks);
+          await fs.writeFile(filePath, body);
+          res.writeHead(201, { "Content-Type": "text/plain" });
+          res.end("✅ Image saved successfully\n");
+        });
+      }
+
+      // --- DELETE ---
+      else if (req.method === "DELETE") {
+        try {
           await fs.unlink(filePath);
           res.writeHead(200, { "Content-Type": "text/plain" });
           res.end("🗑️ Image deleted successfully\n");
+        } catch (err) {
+          if (err.code === "ENOENT") {
+            res.writeHead(404, { "Content-Type": "text/plain" });
+            res.end("Not Found\n");
+          } else {
+            res.writeHead(500, { "Content-Type": "text/plain" });
+            res.end("Internal Server Error\n");
+          }
         }
+      }
 
-        // --- Інші методи ---
-        else {
-          res.writeHead(405, { "Content-Type": "text/plain" });
-          res.end("Method Not Allowed\n");
-        }
-      } catch (err) {
-        if (err.code === "ENOENT") {
-          res.writeHead(404, { "Content-Type": "text/plain" });
-          res.end("Not Found\n");
-        } else {
-          res.writeHead(500, { "Content-Type": "text/plain" });
-          res.end("Internal Server Error\n");
-        }
+      // --- Інші методи ---
+      else {
+        res.writeHead(405, { "Content-Type": "text/plain" });
+        res.end("Method Not Allowed\n");
       }
     });
 
