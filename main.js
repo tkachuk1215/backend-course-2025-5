@@ -20,18 +20,18 @@ fs.mkdir(cacheDir, { recursive: true })
     console.log(`✅ Cache directory: ${cacheDir}`);
 
     const server = http.createServer(async (req, res) => {
-      const code = req.url.slice(1);
+      const code = req.url.slice(1); // наприклад /200 -> "200"
       const filePath = path.join(cacheDir, `${code}.jpg`);
 
       try {
-        // GET — отримати зображення
+        // --- GET ---
         if (req.method === "GET") {
           const data = await fs.readFile(filePath);
           res.writeHead(200, { "Content-Type": "image/jpeg" });
           res.end(data);
         }
 
-        // PUT — зберегти або замінити зображення
+        // --- PUT ---
         else if (req.method === "PUT") {
           const chunks = [];
           req.on("data", (chunk) => chunks.push(chunk));
@@ -39,11 +39,18 @@ fs.mkdir(cacheDir, { recursive: true })
             const body = Buffer.concat(chunks);
             await fs.writeFile(filePath, body);
             res.writeHead(201, { "Content-Type": "text/plain" });
-            res.end("Image saved successfully\n");
+            res.end("✅ Image saved successfully\n");
           });
         }
 
-        // Якщо метод не підтримується
+        // --- DELETE ---
+        else if (req.method === "DELETE") {
+          await fs.unlink(filePath);
+          res.writeHead(200, { "Content-Type": "text/plain" });
+          res.end("🗑️ Image deleted successfully\n");
+        }
+
+        // --- Інші методи ---
         else {
           res.writeHead(405, { "Content-Type": "text/plain" });
           res.end("Method Not Allowed\n");
